@@ -1,0 +1,19 @@
+name: TDesktop code updater.
+description: Updating code that relates to the TDesktop repository.
+
+inputs:
+  type:
+    description: "Available types: license-year, user-agent."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Process.
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        npm init -y
+        npm install simple-git isbinaryfile
+        npm install @actions/core @actions/github
+        node index.js ${{ github.token }} ${{ inputs.type }}

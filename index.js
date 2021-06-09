@@ -170,9 +170,9 @@ const processGit = info => {
 
 const processPullRequest = info => {
 	const octokit = github.getOctokit(githubToken);
-	octokit.pulls.list(info.common).then(response => {
+	octokit.rest.pulls.list(info.common).then(response => {
 		if (response.data.every(i => (i.head.ref != updater.branchName()))) {
-			octokit.pulls.create({
+			octokit.rest.pulls.create({
 				title: updater.commitMessage(),
 				body: "",
 				head: updater.branchName(),

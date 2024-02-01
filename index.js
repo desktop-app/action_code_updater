@@ -28,10 +28,12 @@ class UserAgent {
 		let fullVersion = require("child_process")
 			.execSync("google-chrome --version");
 
-		this.version = versionRegExp.exec(fullVersion);
-		if (!this.version) {
+		let nonReducedVersion = versionRegExp.exec(fullVersion);
+		if (!nonReducedVersion) {
 			process.exit(1);
 		}
+		let major = /\d+/.exec(nonReducedVersion);
+		this.version = `${major}.0.0.0`;
 		console.log(`Current version: ${this.version}.`);
 	}
 

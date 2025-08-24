@@ -3,7 +3,7 @@ description: Updating code that relates to the TDesktop repository.
 
 inputs:
   type:
-    description: "Available types: license-year, user-agent."
+    description: "Available types: license-year, user-agent, dev-to-master."
     required: true
 
 runs:

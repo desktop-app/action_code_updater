@@ -192,7 +192,8 @@ const processGit = info => {
 		git.branch().then(branches => {
 			info.baseBranch = branches.current;
 
-			if (!branches.all.every((b) => (!b.includes(branch)))) {
+			if (jobType !== "dev-to-master"
+				&& !branches.all.every((b) => (!b.includes(branch)))) {
 				bad("Our branch already exists.");
 				return;
 			}

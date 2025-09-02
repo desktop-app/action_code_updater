@@ -14,6 +14,6 @@ runs:
       working-directory: ${{ github.action_path }}
       run: |
         npm init -y
-        npm install simple-git isbinaryfile
-        npm install @actions/core @actions/github
+        npm install --no-fund simple-git isbinaryfile
+        npm install --no-fund @actions/core @actions/github
         node index.js ${{ github.token }} ${{ inputs.type }}

@@ -14,6 +14,13 @@ const process = require("process");
 	}
 }
 
+// Temporary disable dev-to-master job.
+if (process.argv[3] === "dev-to-master") {
+	console.log("dev-to-master job is temporarily disabled.");
+	process.exit(0);
+	return;
+}
+
 const githubToken = process.argv[2];
 const jobType = process.argv[3];
 

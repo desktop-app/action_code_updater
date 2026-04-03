@@ -1,16 +1,17 @@
-const core = require("@actions/core");
-const github = require("@actions/github");
-const fs = require("fs");
-const { resolve } = require("path");
-const simpleGit = require("simple-git");
-const isBinaryFileSync = require("isbinaryfile").isBinaryFileSync;
-const process = require("process");
+import * as core from "@actions/core";
+import * as github from "@actions/github";
+import fs from "fs";
+import { resolve } from "path";
+import simpleGit from "simple-git";
+import { isBinaryFileSync } from "isbinaryfile";
+import process from "process";
+import { execSync } from "child_process";
 
 {
 	let eventName = github.context.eventName;
 	if (eventName.startsWith("pull_request")) {
 		console.log(`Event name: ${eventName}. There's nothing here yet.`);
-		return;
+		process.exit(0);
 	}
 }
 
@@ -18,7 +19,6 @@ const process = require("process");
 if (process.argv[3] === "dev-to-master") {
 	console.log("dev-to-master job is temporarily disabled.");
 	process.exit(0);
-	return;
 }
 
 const githubToken = process.argv[2];
@@ -32,8 +32,7 @@ class UserAgent {
 		this.userAgentRegExp = new RegExp("Chrome/" + numberRegExp, "g");
 
 		let versionRegExp = new RegExp(numberRegExp, "g");
-		let fullVersion = require("child_process")
-			.execSync("google-chrome --version");
+		let fullVersion = execSync("google-chrome --version");
 
 		let nonReducedVersion = versionRegExp.exec(fullVersion);
 		if (!nonReducedVersion) {
@@ -141,7 +140,7 @@ const updater = (() => {
 
 if (!updater) {
 	console.log("Job type not found.");
-	return;
+	process.exit(0);
 }
 
 //////
@@ -246,12 +245,12 @@ const processPullRequest = async info => {
 	try {
 		const response = await octokit.rest.pulls.list(info.common);
 		const branchName = updater.branchName();
-		const existingPR = response.data.find(i => 
+		const existingPR = response.data.find(i =>
 			i.head.ref === branchName && i.base.ref === info.baseBranch
 		);
 
 		if (!existingPR) {
-			const prBody = updater.prBody 
+			const prBody = updater.prBody
 				? (typeof updater.prBody === 'function' && updater.prBody.constructor.name === 'AsyncFunction'
 					? await updater.prBody(info.common.repo)
 					: updater.prBody())

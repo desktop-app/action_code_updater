@@ -16,4 +16,4 @@ runs:
         npm init -y
         npm install --no-fund simple-git isbinaryfile
         npm install --no-fund @actions/core @actions/github
-        node index.js ${{ github.token }} ${{ inputs.type }}
+        node index.mjs ${{ github.token }} ${{ inputs.type }}

@@ -5,7 +5,7 @@ import { resolve } from "path";
 import simpleGit from "simple-git";
 import { isBinaryFileSync } from "isbinaryfile";
 import process from "process";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 
 {
 	let eventName = github.context.eventName;
@@ -81,6 +81,40 @@ class LicenseYear {
 	}
 };
 
+class UnusedStyles {
+	constructor() {
+		const d = new Date();
+		const yyyy = d.getFullYear();
+		const mm = String(d.getMonth() + 1).padStart(2, "0");
+		this.tag = `${yyyy}_${mm}`;
+		this.removedCount = 0;
+	}
+
+	replace(stringData) {
+		return stringData; // n/a — handled by Python script in processUnusedStyles.
+	}
+
+	commitMessage() {
+		return (this.removedCount > 0)
+			? `Removed ${this.removedCount} unused style entries.`
+			: `Removed unused style entries.`;
+	}
+
+	branchName() {
+		return `unused_styles_${this.tag}`;
+	}
+
+	prTitle() {
+		return this.commitMessage();
+	}
+
+	prBody() {
+		return `` +
+			`Removed ${this.removedCount} style entries with no detected ` +
+			`references across \`.cpp\`, \`.h\`, \`.mm\` and \`.style\` files.`;
+	}
+};
+
 class DevToMaster {
 	constructor() {
 		this.sourceBranch = "dev";
@@ -133,6 +167,8 @@ const updater = (() => {
 			return new UserAgent();
 		case "dev-to-master":
 			return new DevToMaster();
+		case "unused-styles":
+			return new UnusedStyles();
 		default:
 			return undefined;
 	}
@@ -146,8 +182,102 @@ if (!updater) {
 //////
 
 const cloneGit = info => {
-	return simpleGit().clone(info.githubRepo)
+	// For unused-styles we clone shallow (big tdesktop tree) but --no-single-branch
+	// so that branches.all in processGit sees remote unused_styles_* branches and
+	// the "already exists" check fires instead of a later non-fast-forward push.
+	const opts = (jobType === "unused-styles")
+		? ["--recurse-submodules", "--depth=1", "--shallow-submodules", "--no-single-branch"]
+		: [];
+	return simpleGit().clone(info.githubRepo, info.common.repo, opts)
 		.then(() => (new Promise((good, bad) => { good(info); })));
+};
+
+const getSubmodulePaths = (repoPath) => {
+	try {
+		const out = execSync(
+			"git submodule status --recursive",
+			{ cwd: repoPath, encoding: "utf8" });
+		return out
+			.split("\n")
+			.map(l => l.trim())
+			.filter(l => l)
+			.map(l => l.split(/\s+/)[1])
+			.filter(p => p)
+			.map(p => resolve(repoPath, p));
+	} catch (e) {
+		return [];
+	}
+};
+
+const processUnusedStyles = async (info) => {
+	const actionPath = process.env.GITHUB_ACTION_PATH || process.cwd();
+	const scriptPath = resolve(actionPath, "check_unused_styles.py");
+	const repo = info.common.repo;
+	const repoPath = resolve(actionPath, repo);
+
+	let definitionsDirs;
+	let searchDirs;
+	let excludeDirs;
+
+	if (repo === "tdesktop") {
+		const telegramDir = resolve(repoPath, "Telegram");
+		definitionsDirs = [telegramDir];
+		searchDirs = [telegramDir];
+		excludeDirs = getSubmodulePaths(repoPath);
+		if (excludeDirs.length === 0) {
+			throw "unused-styles: expected submodules in tdesktop clone "
+				+ "but got none — refusing to run (would write to untracked paths).";
+		}
+	} else if (repo === "lib_ui") {
+		const parentRepo = "desktop-app/tdesktop";
+		const parentUrl = `${githubAccess}${parentRepo}.git`;
+		console.log(`Cloning ${parentRepo} for reference context...`);
+		await simpleGit().clone(parentUrl, "tdesktop", [
+			"--recurse-submodules", "--depth=1", "--shallow-submodules",
+		]);
+		const tdesktopPath = resolve(actionPath, "tdesktop");
+
+		definitionsDirs = [repoPath];
+		searchDirs = [repoPath, tdesktopPath];
+		excludeDirs = getSubmodulePaths(repoPath);
+	} else {
+		throw `unused-styles: unsupported repo "${repo}" `
+			+ `(expected tdesktop or lib_ui).`;
+	}
+
+	const args = [
+		scriptPath,
+		"--definitions", ...definitionsDirs,
+		"--search", ...searchDirs,
+		"--root", actionPath,
+	];
+	if (excludeDirs.length > 0) {
+		args.push("--exclude", ...excludeDirs);
+	}
+	args.push("--remove");
+
+	console.log(`Running: python3 ${args.join(" ")}`);
+	const result = spawnSync("python3", args, {
+		cwd: actionPath,
+		encoding: "utf8",
+		maxBuffer: 100 * 1024 * 1024,
+	});
+	if (result.stdout) process.stdout.write(result.stdout);
+	if (result.stderr) process.stderr.write(result.stderr);
+	if (result.error) {
+		throw `Failed to run python3: ${result.error.message}`;
+	}
+	if (result.status !== 0) {
+		throw `check_unused_styles.py exited with code ${result.status}`;
+	}
+
+	const m = result.stdout && result.stdout.match(/\[summary\] removed=(\d+)/);
+	updater.removedCount = m ? parseInt(m[1], 10) : 0;
+
+	if (updater.removedCount === 0) {
+		throw "No unused entries found.";
+	}
+	return info;
 };
 
 const processFiles = info => {
@@ -289,11 +419,23 @@ const createInfo = (owner, repo) => ({
 });
 
 const processJob = info => {
-	cloneGit(info)
-	.then(processFiles)
+	let pipeline = cloneGit(info);
+	if (jobType === "unused-styles") {
+		pipeline = pipeline.then(processUnusedStyles);
+	} else {
+		pipeline = pipeline.then(processFiles);
+	}
+	pipeline
 	.then(processGit)
 	.then(async (info) => await processPullRequest(info))
 	.catch(error => {
+		if (typeof error === "string" && (
+			error === "No modified files." ||
+			error === "No unused entries found."
+		)) {
+			console.log(error);
+			process.exit(0);
+		}
 		console.error("Error:", error);
 		process.exit(1);
 	});
